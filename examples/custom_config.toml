@@ -33,6 +33,9 @@ minimum_test_timeout = 60.0
 # Copy VCS directories (.git, etc.) to build directories
 copy_vcs = true
 
+# Run a command after copying each build directory
+# prepare_command = ["cargo", "xtask", "generate"]
+
 # Examine only files matching these glob patterns
 examine_globs = [
     "src/**/*.rs",

@@ -122,6 +122,9 @@ pub struct Options {
     /// Cargo profile.
     pub profile: Option<String>,
 
+    /// Command and arguments to run after copying each build directory.
+    pub prepare_command: Vec<String>,
+
     /// Additional arguments for every cargo invocation.
     pub additional_cargo_args: Vec<String>,
 
@@ -375,6 +378,7 @@ impl Options {
                 .or(config.output.as_ref().map(Utf8PathBuf::from)),
             print_caught: args.caught,
             print_unviable: args.unviable,
+            prepare_command: config.prepare_command.clone(),
             profile: args.profile.as_ref().or(config.profile.as_ref()).cloned(),
             shuffle: args.shuffle,
             show_line_col: args.line_col,
@@ -518,6 +522,18 @@ mod test {
         assert!(!options.cap_lints);
         assert!(options.common.sharding.is_none());
         assert_eq!(options.sharding(), Sharding::Slice);
+    }
+
+    #[test]
+    fn prepare_command_from_config_preserves_argv() {
+        let options = Options::from_arg_strs_and_config(
+            ["mutants"],
+            r#"prepare_command = ["cargo", "xtask", "--output=with space"]"#,
+        );
+        assert_eq!(
+            options.prepare_command,
+            ["cargo", "xtask", "--output=with space"]
+        );
     }
 
     #[test]

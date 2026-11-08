@@ -4,7 +4,10 @@
 
 #![warn(clippy::pedantic)]
 
-use std::fs::{symlink_metadata, write};
+use std::{
+    fs::{symlink_metadata, write},
+    process::{Command, Stdio},
+};
 
 use anyhow::{Context, bail};
 use camino::{Utf8Path, Utf8PathBuf};
@@ -73,6 +76,7 @@ impl BuildDir {
             .context("tempdir path to UTF-8")?;
         fix_manifest(&path.join("Cargo.toml"), &source_abs)?;
         fix_cargo_config(&path, &source_abs)?;
+        run_prepare_command(&path, &options.prepare_command)?;
         let temp_dir = if options.leak_dirs {
             let _ = temp_dir.keep();
             info!(?path, "Build directory will be leaked for inspection");
@@ -120,6 +124,22 @@ impl BuildDir {
     }
 }
 
+fn run_prepare_command(path: &Utf8Path, command: &[String]) -> Result<()> {
+    let Some((program, arguments)) = command.split_first() else {
+        return Ok(());
+    };
+    let status = Command::new(program)
+        .args(arguments)
+        .current_dir(path)
+        .stdin(Stdio::null())
+        .status()
+        .with_context(|| format!("run prepare command {command:?} in {path}"))?;
+    if !status.success() {
+        bail!("prepare command {command:?} failed in {path} with {status}");
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod test {
     use std::fs::create_dir;
@@ -148,11 +168,65 @@ mod test {
     }
 
     #[test]
-    fn for_baseline_in_place() -> Result<()> {
+    fn build_dir_copy_from_runs_prepare_command_in_copy() -> Result<()> {
+        let tmp = copy_of_testdata("factorial");
+        std::fs::write(tmp.path().join("prepare.rs"), "pub fn prepared() {}")?;
+        let workspace = Workspace::open(tmp.path())?;
+        let options = Options {
+            prepare_command: rustc_prepare_command("prepare.rs", "prepared.rmeta"),
+            ..Default::default()
+        };
+
+        let build_dir = BuildDir::copy_from(workspace.root(), &options, &Console::new())?;
+
+        assert!(build_dir.path().join("prepared.rmeta").is_file());
+        assert!(!workspace.root().join("prepared.rmeta").exists());
+        Ok(())
+    }
+
+    #[test]
+    fn build_dir_copy_from_reports_prepare_command_failure() -> Result<()> {
+        let tmp = copy_of_testdata("factorial");
+        std::fs::write(tmp.path().join("invalid.rs"), "not valid Rust")?;
+        let workspace = Workspace::open(tmp.path())?;
+        let options = Options {
+            prepare_command: rustc_prepare_command("invalid.rs", "prepared.rmeta"),
+            ..Default::default()
+        };
+
+        let err = BuildDir::copy_from(workspace.root(), &options, &Console::new()).unwrap_err();
+
+        let message = err.to_string();
+        assert!(message.contains("prepare command"));
+        assert!(message.contains("invalid.rs"));
+        assert!(message.contains("failed in"));
+        Ok(())
+    }
+
+    #[test]
+    fn build_dir_copy_from_reports_prepare_command_spawn_failure() -> Result<()> {
+        let tmp = copy_of_testdata("factorial");
+        let workspace = Workspace::open(tmp.path())?;
+        let options = Options {
+            prepare_command: vec!["cargo-mutants-command-that-does-not-exist".to_owned()],
+            ..Default::default()
+        };
+
+        let err = BuildDir::copy_from(workspace.root(), &options, &Console::new()).unwrap_err();
+
+        let message = err.to_string();
+        assert!(message.contains("cargo-mutants-command-that-does-not-exist"));
+        assert!(message.contains("run prepare command"));
+        Ok(())
+    }
+
+    #[test]
+    fn for_baseline_in_place_skips_prepare_command() -> Result<()> {
         let tmp = copy_of_testdata("factorial");
         let workspace = Workspace::open(tmp.path())?;
         let options = Options {
             in_place: true,
+            prepare_command: vec!["cargo-mutants-command-that-does-not-exist".to_owned()],
             ..Default::default()
         };
         let build_dir = BuildDir::for_baseline(&workspace, &options, &Console::new())?;
@@ -162,6 +236,17 @@ mod test {
         );
         assert!(build_dir.temp_dir.is_none());
         Ok(())
+    }
+
+    fn rustc_prepare_command(source: &str, output: &str) -> Vec<String> {
+        vec![
+            std::env::var("RUSTC").unwrap_or_else(|_| "rustc".to_owned()),
+            source.to_owned(),
+            "--crate-type=lib".to_owned(),
+            "--emit=metadata".to_owned(),
+            "-o".to_owned(),
+            output.to_owned(),
+        ]
     }
 
     #[test]

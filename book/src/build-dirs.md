@@ -6,6 +6,16 @@ When the [`--jobs`](parallelism.md) option is used, one build directory is creat
 
 Some filters are applied while copying the tree, which can be configured by options.
 
+## Preparing copied trees
+
+If a project generates build inputs outside `build.rs`, configure a command to run after each build directory is copied:
+
+```toml
+prepare_command = ["cargo", "xtask", "generate"]
+```
+
+The array contains the executable followed by its arguments; no shell is invoked. The command runs with the copied workspace root as its working directory, after relative manifest and Cargo configuration paths are fixed, and a spawn or nonzero-exit failure stops the run. It runs once for each copied directory, including each parallel job's copy; parallel commands may run concurrently and are not timeout-controlled. It does not run with `--in-place`, listing commands, or when no mutants match.
+
 ## Troubleshooting tree copies
 
 If the baseline tests fail in the copied directory it is a good first debugging step to try building with `--in-place`.

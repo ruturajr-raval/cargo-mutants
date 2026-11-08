@@ -72,6 +72,8 @@ pub struct Config {
     pub output: Option<String>,
     /// Cargo profile.
     pub profile: Option<String>,
+    /// Command and arguments to run after copying each build directory.
+    pub prepare_command: Vec<String>,
     /// Skip calls to functions or methods with these names.
     ///
     /// This is combined with values from the --skip-calls argument.

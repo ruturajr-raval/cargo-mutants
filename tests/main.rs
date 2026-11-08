@@ -1091,6 +1091,26 @@ timeout_multiplier = 2.5
 }
 
 #[test]
+fn prepare_command_spawn_failure_stops_copied_tree_run() {
+    let tmp_src_dir = copy_of_testdata("small_well_tested");
+    create_dir(tmp_src_dir.path().join(".cargo")).unwrap();
+    fs::write(
+        tmp_src_dir.path().join(".cargo/mutants.toml"),
+        r#"prepare_command = ["cargo-mutants-command-that-does-not-exist"]"#,
+    )
+    .unwrap();
+
+    run()
+        .args(["mutants", "--check", "--no-times", "--no-shuffle", "-d"])
+        .arg(tmp_src_dir.path())
+        .assert()
+        .failure()
+        .stderr(contains(
+            r#"run prepare command ["cargo-mutants-command-that-does-not-exist"] in "#,
+        ));
+}
+
+#[test]
 fn config_option_mutual_exclusion_with_no_config() {
     let tmp_src_dir = copy_of_testdata("well_tested");
     let custom_config_path = tmp_src_dir.path().join("test_config.toml");
